@@ -1,2 +1,7 @@
-fastapi[standard]==0.112.0
+fastapi[standard]==0.115.0
 uvicorn[standard]==0.51.0
+chromadb==1.5.9
+pydantic==2.13.4
+langchain_huggingface
+langchain_chroma
+
