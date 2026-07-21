@@ -1,57 +1,77 @@
 """
 API v1 Routes
-Defines all endpoints for the Mentoro RAG API.
+Defines all endpoints for the Mentoro RAG API, including streaming pipelines.
 """
 
+import json
 from fastapi import APIRouter, HTTPException, status
+import os
+from fastapi.responses import StreamingResponse # Critical import for handling continuous buffered generation
 from app.validation.schemas import (
     QueryRequest, QueryResponse,
     PlatformInfoRequest,
     CourseContentRequest,
     StudentMemoryRequest,
-    BulkSyncRequest, BulkSyncResponse
+    BulkSyncRequest, BulkSyncResponse,
+    SyncSourceRequest
 )
 from app.services.rag_service import RAGService
 from app.services.sync_service import SyncService
-from app.config.database  import db_manager
+from app.config.database import db_manager
 
 router = APIRouter()
 
 # =========================================================================
-# CHAT ENDPOINT
+# CHAT ENDPOINT (STREAMING CHANNELS VIA SSE)
 # =========================================================================
 
-@router.post("/chat", response_model=QueryResponse, status_code=status.HTTP_200_OK)
+@router.post("/chat", status_code=status.HTTP_200_OK)
 async def chat(request_data: QueryRequest):
     """
-    Main chat endpoint. Optimizes query, retrieves context, generates response.
+    Main asynchronous chat endpoint. Translates and optimizes queries, fetches matching 
+    context documents, and pipes non-buffered token chunks down to client components via SSE.
     """
+    # Defensive programming: Terminate blank or spacing payload strings early
     if not request_data.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     try:
-        # Step 1: Optimize query
+        # Step 1: Execute query restructuring via LLM prompt formatting
         optimized_query = await RAGService.optimize_query(request_data.question)
 
-        # Step 2: Retrieve context
+        # Step 2: Extract historical/vector context vectors from core vector repository
         retrieved_docs = await RAGService.retrieve_context(
             optimized_query=optimized_query,
             course_id=request_data.course_id,
             student_id=request_data.student_id
         )
 
-        # Step 3: Generate response
-        ai_response = await RAGService.generate_response(optimized_query, retrieved_docs)
+        # Step 3: Define Server-Sent Events (SSE) background stream engine wrapper
+        async def event_generator():
+            try:
+                # Stage A: Ship processing metadata objects immediately before generation delay
+                initial_metadata = {
+                    "status": "success",
+                    "original_query": request_data.question,
+                    "optimized_query": optimized_query,
+                    "context_retrieved": retrieved_docs
+                }
+                # Structured compliance syntax required for proper JS EventSource mapping (\n\n)
+                yield f"data: {json.dumps({'type': 'metadata', 'content': initial_metadata})}\n\n"
 
-        return QueryResponse(
-            status="success",
-            original_query=request_data.question,
-            optimized_query=optimized_query,
-            context_retrieved=retrieved_docs,
-            ai_response=ai_response
-        )
+                # Stage B: Pipe active generated token streams smoothly down the TCP pipe
+                async for token in RAGService.generate_response(optimized_query, retrieved_docs):
+                    yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                    
+            except Exception as stream_err:
+                # Graceful handling of execution disruptions mid-stream
+                yield f"data: {json.dumps({'type': 'error', 'content': str(stream_err)})}\n\n"
+
+        # Initialize network engine stream handling via proper text/event-stream media configurations
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
 
     except Exception as e:
+        # Catch unexpected RAG failures prior to stream configuration steps
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
 
 # =========================================================================

@@ -1,24 +1,30 @@
 """
 RAG (Retrieval-Augmented Generation) Service
-Handles query optimization, intent classification, context retrieval, and response generation.
+Handles query optimization, intent classification, context retrieval, and asynchronous response streaming.
 """
 
-from typing import List, Optional
+from typing import List, Optional, AsyncGenerator
 from app.config.llm import llm, rewriter_chain
 from app.config.database import db_manager 
 
 
 class RAGService:
-    """Service class for RAG operations."""
+    """Service class for managing end-to-end RAG workflow operations."""
 
     @staticmethod
     async def optimize_query(question: str) -> str:
-        """Rewrite Banglish/grammar into professional English."""
+        """
+        Rewrites Banglish/informal query structures into formal, professional English 
+        optimized for dense vector retrieval and LLM context matching.
+        """
         return rewriter_chain.invoke({"question": question})
 
     @staticmethod
     async def predict_intent(optimized_query: str) -> str:
-        """Dynamically detect if the query is a greeting/chitchat or a data search."""
+        """
+        Dynamically filters query intent to separate casual chat from data retrieval requests.
+        Returns "GREETING" or "SEARCH" to protect DB from redundant vector operations.
+        """
         intent_prompt = f"""Analyze the user's input and classify its primary intent.
         
         Respond with exactly ONE word:
@@ -37,20 +43,24 @@ class RAGService:
         course_id: Optional[str] = None,
         student_id: Optional[str] = None
     ) -> List[str]:
-        """Retrieve relevant documents from ChromaDB dynamically based on intent."""
+        """
+        Queries underlying ChromaDB collections dynamically based on pre-evaluated user intent.
+        Extracts top matches with metadata filtering constraints for isolated user spaces.
+        """
         retrieved_docs = []
 
-        # 🎯 ডাইনামিক চেকপোস্ট: গ্রীটিংস বা চিটচ্যাট হলে সরাসরি খালি লিস্ট রিটার্ন করবে
+        # Intent checkpoint: Bypass ChromaDB processing completely if query is just a greeting
         intent = await RAGService.predict_intent(optimized_query)
         if "GREETING" in intent:
             print(f"🤖 LLM detected intent: {intent}. Skipping ChromaDB search.")
             return retrieved_docs
 
+        # Fail-safe check to prevent execution crashes if database client configuration fails
         if not db_manager.client:
             print("⚠️ Warning: ChromaDB Cloud is not connected!")
             return retrieved_docs
 
-        # Search specific course
+        # Vector Match Scope 1: Search within a specifically specified course collection
         if course_id and db_manager.course_contents_store:
             docs = db_manager.course_contents_store.similarity_search(
                 query=optimized_query, k=2,
@@ -58,7 +68,7 @@ class RAGService:
             )
             retrieved_docs.extend([d.page_content for d in docs])
 
-        # Search student memories
+        # Vector Match Scope 2: Retrieve history records/notes mapped to specific student
         if student_id and db_manager.student_memories_store:
             docs = db_manager.student_memories_store.similarity_search(
                 query=optimized_query, k=1,
@@ -66,14 +76,14 @@ class RAGService:
             )
             retrieved_docs.extend([d.page_content for d in docs])
 
-        # Search all courses (no filter)
+        # Vector Match Scope 3: General fallback search across all courses if no targeting IDs present
         if not course_id and not student_id and not retrieved_docs and db_manager.course_contents_store:
             docs = db_manager.course_contents_store.similarity_search(
                 query=optimized_query, k=5
             )
             retrieved_docs.extend([d.page_content for d in docs])
 
-        # Fallback to platform info
+        # Vector Match Scope 4: Deep generic fallback routing to general platform info database
         if not retrieved_docs and db_manager.platform_info_store:
             docs = db_manager.platform_info_store.similarity_search(
                 query=optimized_query, k=2
@@ -83,10 +93,15 @@ class RAGService:
         return retrieved_docs
 
     @staticmethod
-    async def generate_response(optimized_query: str, context: List[str]) -> str:
-        """Generate AI response using RAG prompt."""
+    async def generate_response(optimized_query: str, context: List[str]) -> AsyncGenerator[str, None]:
+        """
+        Compiles structural prompt layouts with strict hallucination parameters, security constraints,
+        and retrieved context, then streams the generated response tokens asynchronously back down the channel.
+        """
+        # Formulate and establish context boundaries using consistent separator tokens
         context_text = "\n\n---\n\n".join(context) if context else "No relevant context found."
 
+        # Compile structured system identity instructions, boundaries, and validation parameters
         final_prompt = f"""You are "Mentoro AI" — the official AI Assistant for the Mentoro LMS platform.
 
 ## WHO YOU ARE
@@ -136,5 +151,7 @@ Context:
 Question: {optimized_query}
 Answer:"""
 
-        response = llm.invoke(final_prompt)
-        return response.content
+        # Non-blocking stream block: Asynchronously yields text pieces as they are emitted from ChatGroq
+        async for chunk in llm.astream(final_prompt):
+            if chunk.content:
+                yield chunk.content

@@ -69,3 +69,7 @@ class BulkSyncResponse(BaseModel):
     successful: int
     failed: int
     details: List[dict]
+
+class SyncSourceRequest(BaseModel):
+    """Request schema for syncing all courses from an external source URL."""
+    source_url: str = Field(..., description="Full URL of the external course data endpoint returning JSON array of CourseData")

@@ -4,8 +4,9 @@ Handles bulk syncing of courses from external Node.js/PostgreSQL backend.
 """
 
 from typing import List, Dict, Any
-from app.config.database import db_manager      
+import httpx
 from app.validation.schemas import CourseData
+from app.config.database import db_manager
 
 class SyncService:
     """Service class for course synchronization."""
@@ -92,3 +93,17 @@ Students can learn {course.title} from {course.instructor}."""
             "failed": fail_count,
             "details": results
         }
+
+    @staticmethod
+    async def sync_all_from_source(source_url: str) -> Dict[str, Any]:
+        """Fetch courses from external source and sync them.
+
+        The external service should return a JSON array of objects matching the ``CourseData`` schema.
+        """
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(source_url, timeout=10)
+            resp.raise_for_status()
+            courses_json = resp.json()
+        # Validate and convert to CourseData models
+        courses: List[CourseData] = [CourseData(**c) for c in courses_json]
+        return await SyncService.sync_courses(courses)
