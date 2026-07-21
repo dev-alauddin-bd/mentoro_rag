@@ -1,38 +1,45 @@
 """
 Mentoro RAG API - Main Application Entry Point
-Production-grade FastAPI application with LangChain, Groq LLM, and ChromaDB Cloud.
 """
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.config.database import db_manager
 from app.api.routes import router as api_router
 
-#  Manage backend initialization routines via Lifespan
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize ChromaDB connection
-
     db_manager.connect()
-    
-    # Yield control to the application
-    yield   
+    yield
 
 
-# fastapi application instance with lifespan management
-app= FastAPI(lifespan=lifespan, title="Mentoro RAG API", version="1.0.0")
+app = FastAPI(
+    lifespan=lifespan,
+    title="Mentoro RAG API",
+    version="1.0.0",
+)
 
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(api_router, prefix="/api/v1", tags=["Mentoro RAG API"])
 
-# root endpoint
-@app.get('/')
+
+@app.get("/")
 def root():
     return {
         "message": "Mentoro RAG is running!",
-        "status": "success"
+        "status": "success",
     }
-
-
-
-
-
