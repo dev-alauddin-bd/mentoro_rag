@@ -13,10 +13,13 @@ from app.validation.schemas import (
     CourseContentRequest,
     StudentMemoryRequest,
     BulkSyncRequest, BulkSyncResponse,
-    SyncSourceRequest
+    SyncSourceRequest,
+    GenerateCourseContentRequest, GenerateCourseContentResponse,
+    GenerateLiveSessionRequest, GenerateLiveSessionResponse
 )
 from app.services.rag_service import RAGService
 from app.services.sync_service import SyncService
+from app.services.generation_service import GenerationService
 from app.config.database import db_manager
 
 router = APIRouter()
@@ -156,3 +159,34 @@ async def sync_all_courses(data: BulkSyncRequest):
     """Bulk sync courses from Node.js/PostgreSQL into ChromaDB."""
     result = await SyncService.sync_courses(data.courses)
     return BulkSyncResponse(**result)
+
+
+# =========================================================================
+# CONTENT & LIVE SESSION GENERATION ENDPOINTS
+# =========================================================================
+
+@router.post("/generate-course-content", response_model=GenerateCourseContentResponse, status_code=status.HTTP_200_OK)
+async def generate_course_content(data: GenerateCourseContentRequest):
+    """Generate structured course metadata using LLM."""
+    if not data.topic.strip():
+        raise HTTPException(status_code=400, detail="Topic cannot be empty.")
+
+    try:
+        content_data = await GenerationService.generate_course_content(data.topic)
+        return GenerateCourseContentResponse(status="success", data=content_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate course content: {str(e)}")
+
+
+@router.post("/generate-live-session", response_model=GenerateLiveSessionResponse, status_code=status.HTTP_200_OK)
+async def generate_live_session(data: GenerateLiveSessionRequest):
+    """Generate structured live session details using LLM."""
+    if not data.title.strip():
+        raise HTTPException(status_code=400, detail="Title cannot be empty.")
+
+    try:
+        session_data = await GenerationService.generate_live_session(data.title)
+        return GenerateLiveSessionResponse(status="success", data=session_data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate live session: {str(e)}")
+

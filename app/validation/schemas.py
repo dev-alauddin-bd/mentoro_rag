@@ -73,3 +73,53 @@ class BulkSyncResponse(BaseModel):
 class SyncSourceRequest(BaseModel):
     """Request schema for syncing all courses from an external source URL."""
     source_url: str = Field(..., description="Full URL of the external course data endpoint returning JSON array of CourseData")
+
+
+# =========================================================================
+# CONTENT GENERATION SCHEMAS
+# =========================================================================
+
+class GenerateCourseContentRequest(BaseModel):
+    """Request schema for course content generation."""
+    topic: str = Field(..., description="Topic or title outline for course generation.")
+
+class GeneratedCourseContentData(BaseModel):
+    """Structured response schema for generated course content."""
+    title: str = Field(description="Catchy title for the course")
+    shortDescription: str = Field(description="Short course summary")
+    description: str = Field(description="Detailed course description")
+    seoTitle: str = Field(description="SEO optimized title tag")
+    seoDescription: str = Field(description="SEO meta description")
+    tags: List[str] = Field(default_factory=list, description="List of relevant tags")
+    learningOutcomes: List[str] = Field(default_factory=list, description="Key learning outcomes")
+    requirements: List[str] = Field(default_factory=list, description="Course prerequisites")
+    targetAudience: List[str] = Field(default_factory=list, description="Target audience groups")
+    level: str = Field(default="BEGINNER", description="Difficulty level: BEGINNER, INTERMEDIATE, ADVANCED")
+    language: str = Field(default="English", description="Language of instruction")
+    duration: int = Field(default=60, description="Estimated total duration in minutes")
+    categorySuggestion: str = Field(description="Suggested course category")
+    thumbnailPrompt: str = Field(description="AI image generation prompt for course thumbnail")
+
+class GenerateCourseContentResponse(BaseModel):
+    """Response wrapper for course content generation."""
+    status: str = "success"
+    data: GeneratedCourseContentData
+
+class GenerateLiveSessionRequest(BaseModel):
+    """Request schema for live session outline generation."""
+    title: str = Field(..., description="Title or topic of the live session.")
+
+class GeneratedLiveSessionData(BaseModel):
+    """Structured response schema for generated live session."""
+    title: str = Field(description="Live session title")
+    fullDescription: str = Field(description="Detailed description of the live session")
+    learningOutcomes: List[str] = Field(default_factory=list, description="Key takeaways or learning outcomes")
+    whoShouldAttend: List[str] = Field(default_factory=list, description="Target audience for the session")
+    keyTopics: List[str] = Field(default_factory=list, description="Main topics covered in session")
+    seoKeywords: List[str] = Field(default_factory=list, description="SEO keywords")
+
+class GenerateLiveSessionResponse(BaseModel):
+    """Response wrapper for live session generation."""
+    status: str = "success"
+    data: GeneratedLiveSessionData
+
